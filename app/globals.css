@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* Khoj is a light-only design for now — force it regardless of the
+   visitor's OS/browser dark-mode preference. Without this, unstyled
+   elements (inputs, buttons) inherit a near-white --foreground under
+   prefers-color-scheme: dark, which is nearly invisible on our white
+   cards even though every other text color is set explicitly. */
+html {
+  color-scheme: light;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
