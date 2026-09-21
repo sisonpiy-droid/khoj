@@ -1,5 +1,5 @@
 import { findKnownBrand } from "@/data/knownBrands";
-import { HARD_VARIANT_KEYWORDS, coreTokens, normalizeProduct, parseQuantity } from "./normalize";
+import { HARD_VARIANT_KEYWORDS, coreTokens, isMultipackQuantity, normalizeProduct, parseQuantity } from "./normalize";
 import type {
   MatchedItem,
   NormalizedProduct,
@@ -34,6 +34,20 @@ function sameQuantity(a: NormalizedQuantity | null, b: NormalizedQuantity | null
   return Math.abs(a.value - b.value) < 0.001 * Math.max(a.value, b.value, 1);
 }
 
+/** Real catalogues label the same manufacturer differently across platforms
+ * — e.g. "Nandini" vs "Nandini Goodlife" (a specific product line under the
+ * same dairy cooperative brand). Requiring exact string equality here
+ * wrongly treated every platform's own sub-brand phrasing as a different
+ * manufacturer, which is why cross-platform matches for common items like
+ * plain "milk" were collapsing to a single platform. A containment check
+ * accepts genuine sub-brand naming while still rejecting unrelated brands
+ * (e.g. "Nandini" is not a substring of "Godrej Jersey"). */
+function brandsCompatible(a: string, b: string): boolean {
+  const la = a.toLowerCase();
+  const lb = b.toLowerCase();
+  return la === lb || la.includes(lb) || lb.includes(la);
+}
+
 /** Hard variants (zero/diet/etc.) must match exactly — never merge Coke with
  * Coke Zero. Soft variants (toned/full cream/etc.) only block a match when
  * both sides specify a conflicting descriptor; one side omitting it (the
@@ -61,7 +75,7 @@ function isEquivalent(a: NormalizedProduct, b: NormalizedProduct): boolean {
   if (qtyMatch === false) return false;
 
   if (a.normalizedBrand && b.normalizedBrand) {
-    if (a.normalizedBrand.toLowerCase() !== b.normalizedBrand.toLowerCase()) return false;
+    if (!brandsCompatible(a.normalizedBrand, b.normalizedBrand)) return false;
   }
 
   const similarity = jaccard(coreTokens(a), coreTokens(b));
@@ -85,7 +99,7 @@ function scoreCandidate(
   let score = jaccard(coreTokens(product), queryTokens) * 3;
 
   if (queryBrand && product.normalizedBrand) {
-    score += queryBrand.toLowerCase() === product.normalizedBrand.toLowerCase() ? 2 : -1;
+    score += brandsCompatible(queryBrand, product.normalizedBrand) ? 2 : -1;
   }
 
   const qtyMatch = sameQuantity(queryQuantity, product.normalizedQuantity);
@@ -93,6 +107,12 @@ function scoreCandidate(
   if (qtyMatch === false) score -= 3; // e.g. query asked for 1L, this is 500ml
 
   if (product.available) score += 0.1;
+  // A generic query ("milk") means a single retail unit by default. Without
+  // this, ties between a platform's single-pack and multipack listings of
+  // the exact same item resolve arbitrarily (by array order), which could
+  // pick a 4-pack over another platform's single pack and then correctly —
+  // but confusingly — report them as not matching on quantity.
+  if (isMultipackQuantity(product.quantity)) score -= 0.5;
 
   return score;
 }

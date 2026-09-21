@@ -64,6 +64,15 @@ const UNIT_ALT = "ltrs?|litres?|l|ml|kgs?|gms?|grams?|g|pcs?|pieces?";
 const MULTIPACK_UNIT_FIRST = new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(${UNIT_ALT})\\s*[x×]\\s*(\\d+)`, "i");
 const MULTIPACK_COUNT_FIRST = new RegExp(`(\\d+)\\s*[x×]\\s*(\\d+(?:\\.\\d+)?)\\s*(${UNIT_ALT})`, "i");
 
+/** Whether a quantity string names a multipack (bundle of several retail
+ * units) rather than a single unit. Used to break scoring ties toward the
+ * single-unit listing, since that's what a generic query like "milk" means
+ * by default, and it's what makes prices comparable across platforms. */
+export function isMultipackQuantity(quantityStr: string | null): boolean {
+  if (!quantityStr) return false;
+  return MULTIPACK_UNIT_FIRST.test(quantityStr) || MULTIPACK_COUNT_FIRST.test(quantityStr);
+}
+
 export function parseQuantity(quantityStr: string | null, name: string): NormalizedQuantity | null {
   const source = quantityStr || name;
 
