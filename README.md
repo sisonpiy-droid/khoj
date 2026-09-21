@@ -106,6 +106,20 @@ deterministic rules cover the required cases; an LLM fallback for ambiguous
 cases would be the natural next step, not implemented here to avoid adding a
 dependency the MVP doesn't need yet.
 
+Brand comparison is containment-based, not exact-string ("Nandini" matches
+"Nandini Goodlife") — real catalogues label sub-brand/product lines
+differently per platform, and exact equality was silently starving matches
+down to a single platform for common generic items.
+
+`matchProducts()` returns *every* distinct product found for a search term
+(each compared across whichever platforms carry it), not just the single
+best guess — considering each platform's own top several results, not only
+its highest-scoring one. A specific query ("Amul Taaza 1L") still naturally
+narrows to one dominant result; a generic query ("milk") returns every SKU
+found, most relevant first. Multi-item basket search still uses only the
+top match per requested item for the savings calculation — you don't want
+five milk options blended into one basket total, just the best one.
+
 ## What's honest vs. estimated
 
 - ETA: shown only if the provider returns one; otherwise "ETA unavailable".

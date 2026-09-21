@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getProviders } from "@/lib/providers";
 import { resolvePincode } from "@/lib/location";
 import { parseQuery } from "@/lib/search/parseQuery";
-import { matchAcrossPlatforms } from "@/lib/matching/match";
+import { matchProducts } from "@/lib/matching/match";
 import { optimizeBasket } from "@/lib/optimization/basket";
 import type { MatchedItem, ProviderErrorCode, SearchApiResponse } from "@/types";
 
@@ -31,12 +31,12 @@ export async function GET(request: NextRequest) {
 
   const providers = getProviders();
 
-  const items: MatchedItem[] = await Promise.all(
+  const items: MatchedItem[][] = await Promise.all(
     parsedItems.map(async (parsed) => {
       const results = await Promise.all(
         providers.map((provider) => provider.search(parsed.term, location))
       );
-      return matchAcrossPlatforms(parsed.term, parsed.count, results);
+      return matchProducts(parsed.term, parsed.count, results);
     })
   );
 
@@ -44,13 +44,16 @@ export async function GET(request: NextRequest) {
     string,
     { platform: string; errorCode?: ProviderErrorCode; errorMessage?: string }
   >();
-  for (const item of items) {
-    for (const err of item.erroredOn) {
+  for (const group of items) {
+    for (const err of group[0].erroredOn) {
       warningMap.set(err.platform, err);
     }
   }
 
-  const basket = items.length > 1 ? optimizeBasket(items) : null;
+  // Basket math needs exactly one product per requested item — the best
+  // match for each term, same as a single-item search's top result.
+  const primaryItems = items.map((group) => group[0]);
+  const basket = primaryItems.length > 1 ? optimizeBasket(primaryItems) : null;
 
   const response: SearchApiResponse = {
     query,

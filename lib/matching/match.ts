@@ -117,21 +117,32 @@ function scoreCandidate(
   return score;
 }
 
-/** Picks the best-matching product per platform for one search term, then
- * clusters the per-platform picks into a single equivalence group so only
- * genuinely-the-same products are compared side by side. */
-export function matchAcrossPlatforms(
-  term: string,
-  count: number,
-  results: ProviderSearchResult[]
-): MatchedItem {
+// How many of a platform's own results to consider per search term. A
+// generic query ("milk") can have dozens of relevant results on one
+// platform alone; capping this bounds clustering cost without meaningfully
+// limiting what a real shopper would actually scroll through.
+const MAX_CANDIDATES_PER_PLATFORM = 8;
+// Safety bound on how many distinct products we ever return for one term,
+// so a very generic query can't return an unbounded page.
+const MAX_PRODUCT_GROUPS = 25;
+
+/**
+ * Finds every distinct real-world product matching a search term, each
+ * compared across whichever platforms actually carry it. Considers each
+ * platform's own top-scoring candidates (not just its single best result),
+ * then clusters candidates that are genuinely the same product — a specific
+ * search like "Amul Taaza 1L" naturally narrows to one dominant product,
+ * while a generic term like "milk" surfaces every distinct SKU platforms
+ * have on offer, most relevant first.
+ */
+export function matchProducts(term: string, count: number, results: ProviderSearchResult[]): MatchedItem[] {
   const queryTokens = tokenize(term);
   const queryQuantity = parseQuantity(null, term);
   const queryBrand = findKnownBrand(term);
 
   const erroredOn: MatchedItem["erroredOn"] = [];
-  const candidatesByPlatform: Partial<Record<PlatformId, ScoredCandidate>> = {};
-  const noMatchPlatforms: PlatformId[] = [];
+  const successfulPlatforms: PlatformId[] = [];
+  const allCandidates: ScoredCandidate[] = [];
 
   for (const result of results) {
     if (!result.ok) {
@@ -142,61 +153,79 @@ export function matchAcrossPlatforms(
       });
       continue;
     }
+    successfulPlatforms.push(result.platform);
 
-    const normalized = result.products.map(normalizeProduct);
-    let best: ScoredCandidate | null = null;
-    for (const product of normalized) {
-      const score = scoreCandidate(product, queryTokens, queryQuantity, queryBrand);
-      if (!best || score > best.score) {
-        best = { platform: result.platform, product, score };
-      }
-    }
+    const scored = result.products
+      .map(normalizeProduct)
+      .map((product): ScoredCandidate => ({
+        platform: result.platform,
+        product,
+        score: scoreCandidate(product, queryTokens, queryQuantity, queryBrand),
+      }))
+      .filter((c) => c.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, MAX_CANDIDATES_PER_PLATFORM);
 
-    if (best && best.score > 0) {
-      candidatesByPlatform[result.platform] = best;
+    allCandidates.push(...scored);
+  }
+
+  // Cluster candidates that are genuinely the same product. A candidate must
+  // match every existing member of a cluster (not just the first one added)
+  // so loosely-transitive chains can't merge products that aren't actually
+  // equivalent to each other.
+  const clusters: ScoredCandidate[][] = [];
+  for (const candidate of allCandidates) {
+    const cluster = clusters.find((c) => c.every((member) => isEquivalent(member.product, candidate.product)));
+    if (cluster) {
+      // Same platform can legitimately appear twice in a cluster only if
+      // the provider listed a near-duplicate; keep the better-scoring one.
+      const existingIndex = cluster.findIndex((m) => m.platform === candidate.platform);
+      if (existingIndex === -1) cluster.push(candidate);
+      else if (candidate.score > cluster[existingIndex].score) cluster[existingIndex] = candidate;
     } else {
-      noMatchPlatforms.push(result.platform);
+      clusters.push([candidate]);
     }
   }
 
-  const candidates = Object.values(candidatesByPlatform) as ScoredCandidate[];
-
-  // Cluster candidates that are genuinely the same product.
-  const clusters: ScoredCandidate[][] = [];
-  for (const candidate of candidates) {
-    const cluster = clusters.find((c) => isEquivalent(c[0].product, candidate.product));
-    if (cluster) cluster.push(candidate);
-    else clusters.push([candidate]);
+  if (clusters.length === 0) {
+    // Nothing relevant found anywhere — one honest "not found" row rather
+    // than an empty result set the UI would have to special-case.
+    return [
+      {
+        query: term,
+        count,
+        displayName: term,
+        offers: {},
+        unavailableOn: successfulPlatforms,
+        erroredOn,
+      },
+    ];
   }
 
   clusters.sort((a, b) => {
-    if (b.length !== a.length) return b.length - a.length;
+    const platformsA = new Set(a.map((c) => c.platform)).size;
+    const platformsB = new Set(b.map((c) => c.platform)).size;
+    if (platformsB !== platformsA) return platformsB - platformsA;
     const bestA = Math.max(...a.map((c) => c.score));
     const bestB = Math.max(...b.map((c) => c.score));
     return bestB - bestA;
   });
 
-  const winningCluster = clusters[0] ?? [];
-  const winningPlatforms = new Set(winningCluster.map((c) => c.platform));
+  return clusters.slice(0, MAX_PRODUCT_GROUPS).map((cluster) => {
+    const clusterPlatforms = new Set(cluster.map((c) => c.platform));
+    const offers: MatchedItem["offers"] = {};
+    for (const c of cluster) offers[c.platform] = c.product;
 
-  const offers: MatchedItem["offers"] = {};
-  for (const c of winningCluster) {
-    offers[c.platform] = c.product;
-  }
+    const unavailableOn = successfulPlatforms.filter((p) => !clusterPlatforms.has(p));
+    const anchor = [...cluster].sort((a, b) => b.score - a.score)[0];
 
-  const unavailableOn: PlatformId[] = [
-    ...noMatchPlatforms,
-    ...candidates.filter((c) => !winningPlatforms.has(c.platform)).map((c) => c.platform),
-  ];
-
-  const anchor = winningCluster.sort((a, b) => b.score - a.score)[0];
-
-  return {
-    query: term,
-    count,
-    displayName: anchor ? anchor.product.name : term,
-    offers,
-    unavailableOn,
-    erroredOn,
-  };
+    return {
+      query: term,
+      count,
+      displayName: anchor.product.name,
+      offers,
+      unavailableOn,
+      erroredOn,
+    };
+  });
 }

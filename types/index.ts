@@ -127,7 +127,13 @@ export interface BasketOptimization {
 export interface SearchApiResponse {
   query: string;
   location: { pincode: string };
-  items: MatchedItem[];
+  /**
+   * One entry per parsed search term, each holding every distinct product
+   * found for that term (most relevant first) — item[0] is the single best
+   * match, used for basket math; the rest exist so a single-item search can
+   * show every matching SKU rather than only the top guess.
+   */
+  items: MatchedItem[][];
   basket: BasketOptimization | null;
   providerWarnings: { platform: PlatformId; errorCode?: ProviderErrorCode; errorMessage?: string }[];
 }

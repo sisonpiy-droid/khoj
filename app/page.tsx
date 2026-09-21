@@ -139,12 +139,17 @@ export default function Home() {
               </div>
             )}
 
-            {data.basket && <BasketSummary items={data.items} basket={data.basket} />}
+            {data.basket && (
+              <BasketSummary items={data.items.map((group) => group[0])} basket={data.basket} />
+            )}
 
+            {/* A single search term shows every distinct product found for
+                it (most relevant first) — a basket shows just the best
+                match per item, same as the "Best: Platform ₹X" summary. */}
             <div className="flex flex-col gap-8">
-              {data.items.map((item) => (
-                <ItemComparison key={item.query} item={item} />
-              ))}
+              {data.items.length === 1
+                ? data.items[0].map((product, i) => <ItemComparison key={i} item={product} />)
+                : data.items.map((group, i) => <ItemComparison key={i} item={group[0]} />)}
             </div>
           </div>
         )}

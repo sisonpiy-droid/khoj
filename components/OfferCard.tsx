@@ -30,11 +30,11 @@ export function OfferCard({ platform, offer, isCheapest, isFastest, status, erro
         isCheapest ? "border-emerald-400 ring-2 ring-emerald-300" : "border-zinc-200"
       } bg-white`}
     >
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center gap-1">
         <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${meta.bg} ${meta.text}`}>
           {meta.label}
         </span>
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-1">
           {isCheapest && (
             <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
               Cheapest
